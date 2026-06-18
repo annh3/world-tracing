@@ -26,6 +26,11 @@ try:
 except ModuleNotFoundError:
     FLASH_ATTN_2_AVAILABLE = False
 
+# A real flash-attn kernel (FA2/FA3) requires a CUDA device.  When neither is
+# installed we dispatch through PyTorch SDPA, which runs on any backend
+# (CUDA / MPS / CPU), so the CUDA-only guard must be skipped in that case.
+FLASH_BACKEND_AVAILABLE = FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE
+
 
 def _sdpa_fallback_varlen(
     q, k, v, q_lens, k_lens,
@@ -129,7 +134,7 @@ def flash_attention(
     half_dtypes = (torch.float16, torch.bfloat16)
     if dtype not in half_dtypes:
         raise ValueError(f"Expected {dtype=} to be one of {half_dtypes=}.")
-    if q.device.type != "cuda":
+    if FLASH_BACKEND_AVAILABLE and q.device.type != "cuda":
         raise ValueError(f"Expected {q.device.type=} to be 'cuda'.")
     if q.size(-1) > 256:
         raise ValueError(f"Expected {q.size(-1)=} to be <= 256.")
@@ -149,7 +154,8 @@ def flash_attention(
     if q_lens is None:
         q = half(q.flatten(0, 1))
         q_lens = torch.tensor([lq] * b, dtype=torch.int32).to(
-            device=q.device, non_blocking=True
+            # non_blocking H2D copies are corrupt on MPS; only CUDA benefits.
+            device=q.device, non_blocking=q.device.type == "cuda"
         )
     else:
         q = half(torch.cat([u[:v] for u, v in zip(q, q_lens)]))
@@ -159,7 +165,7 @@ def flash_attention(
         k = half(k.flatten(0, 1))
         v = half(v.flatten(0, 1))
         k_lens = torch.tensor([lk] * b, dtype=torch.int32).to(
-            device=k.device, non_blocking=True
+            device=k.device, non_blocking=k.device.type == "cuda"
         )
     else:
         k = half(torch.cat([u[:v] for u, v in zip(k, k_lens)]))
@@ -255,7 +261,7 @@ def flash_attention_with_lse(
     half_dtypes = (torch.float16, torch.bfloat16)
     if dtype not in half_dtypes:
         raise ValueError(f"Expected {dtype=} to be one of {half_dtypes=}.")
-    if q.device.type != "cuda":
+    if FLASH_BACKEND_AVAILABLE and q.device.type != "cuda":
         raise ValueError(f"Expected {q.device.type=} to be 'cuda'.")
     if q.size(-1) > 256:
         raise ValueError(f"Expected {q.size(-1)=} to be <= 256.")
@@ -273,7 +279,8 @@ def flash_attention_with_lse(
     if q_lens is None:
         q = half(q.flatten(0, 1))
         q_lens = torch.tensor([lq] * b, dtype=torch.int32).to(
-            device=q.device, non_blocking=True
+            # non_blocking H2D copies are corrupt on MPS; only CUDA benefits.
+            device=q.device, non_blocking=q.device.type == "cuda"
         )
     else:
         q = half(torch.cat([u[:v] for u, v in zip(q, q_lens)]))
@@ -282,7 +289,7 @@ def flash_attention_with_lse(
         k = half(k.flatten(0, 1))
         v = half(v.flatten(0, 1))
         k_lens = torch.tensor([lk] * b, dtype=torch.int32).to(
-            device=k.device, non_blocking=True
+            device=k.device, non_blocking=k.device.type == "cuda"
         )
     else:
         k = half(torch.cat([u[:v] for u, v in zip(k, k_lens)]))
@@ -394,7 +401,7 @@ def flash_attention_varlen(
     half_dtypes = (torch.float16, torch.bfloat16)
     if dtype not in half_dtypes:
         raise ValueError(f"Expected {dtype=} to be one of {half_dtypes=}.")
-    if q.device.type != "cuda":
+    if FLASH_BACKEND_AVAILABLE and q.device.type != "cuda":
         raise ValueError(f"Expected {q.device.type=} to be 'cuda'.")
     if q.size(-1) > 256:
         raise ValueError(f"Expected {q.size(-1)=} to be <= 256.")

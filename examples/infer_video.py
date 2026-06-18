@@ -45,7 +45,13 @@ import torch
 
 from wt import inference_video_diffusion, solve_intrinsics_from_xyz
 from wt.checkpoint import build_model_and_load_ckpt
-from wt.cli import add_common_args, parse_bg_color, resolve_seeds
+from wt.cli import (
+    add_common_args,
+    autocast_for,
+    parse_bg_color,
+    pick_device,
+    resolve_seeds,
+)
 from wt.data import load_video_clip, preprocess_clip_for_model
 from wt.inference import _bypass_activation_checkpointing
 from wt.viz import (
@@ -96,7 +102,7 @@ def main():
             "the video recording always uses the per-frame timeline."
         )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = pick_device()
     print(
         f"[wt] config={args.config}, device={device}, "
         f"seeds={seeds} ({len(seeds)} sample{'s' if len(seeds) > 1 else ''})"
@@ -126,11 +132,7 @@ def main():
     mask_clip = mask_clip.to(device)
     intr_t = intr_t.to(device)
 
-    autocast_ctx = (
-        torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-        if device.type == "cuda"
-        else torch.autocast(device_type="cpu", enabled=False)
-    )
+    autocast_ctx = autocast_for(device)
 
     seeds_xyz: list[np.ndarray] = []
     seeds_mask: list[np.ndarray] = []

@@ -7,11 +7,40 @@ files focus on the actual pipeline (preprocess → forward → visualise).
 from __future__ import annotations
 
 import argparse
+import contextlib
 from pathlib import Path
+
+import torch
 
 
 DEFAULT_SWEEP_BASE_SEED = 42
 DEFAULT_SWEEP_SIZE = 4
+
+
+def pick_device() -> torch.device:
+    """Select the best available compute device: CUDA > MPS (Apple) > CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def autocast_for(device: torch.device):
+    """Autocast context for the chosen device.
+
+    On CUDA we run the diffusion forward under ``bfloat16`` autocast (the
+    setting used to produce the released samples).  On MPS and CPU we run in
+    full ``float32`` (a no-op context): the model interleaves many
+    ``torch.autocast(device_type="cuda", enabled=False)`` regions to force
+    fp32 for numerically-sensitive ops (SVD-based pose solve, RoPE, …).
+    Those guards only disable *CUDA* autocast, so enabling MPS bf16 autocast
+    globally would silently run those regions in bf16 and corrupt the result.
+    Full-fp32 keeps the non-CUDA path numerically faithful.
+    """
+    if device.type == "cuda":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    return contextlib.nullcontext()
 
 
 def resolve_seeds(args: argparse.Namespace) -> list[int]:

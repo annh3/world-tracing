@@ -22,10 +22,17 @@ def tensor_to_numpy(x: Tensor) -> np.ndarray:
 
 @contextlib.contextmanager
 def maybe_autocast(device: torch.device, dtype: torch.dtype = torch.bfloat16):
-    """Wrap ``torch.autocast``, no-op'ing on CPU+float32 (which autocast cannot handle)."""
+    """Wrap ``torch.autocast``, no-op'ing where autocast can't express the request.
+
+    These call sites use ``dtype=float32`` to *force* full precision for
+    numerically-sensitive ops.  On CPU and MPS the non-CUDA inference path
+    already runs in fp32 (see ``wt.cli.autocast_for``), so a float32 request
+    is simply a no-op — and neither CPU nor MPS autocast can target float32
+    anyway (MPS autocast only supports bfloat16).
+    """
     assert dtype in (torch.float16, torch.bfloat16, torch.float32), dtype
-    assert device.type in ("cpu", "cuda"), device
-    if device.type == "cpu" and dtype == torch.float32:
+    assert device.type in ("cpu", "cuda", "mps"), device
+    if device.type in ("cpu", "mps") and dtype == torch.float32:
         with contextlib.nullcontext():
             yield
     else:
