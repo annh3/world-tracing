@@ -31,7 +31,11 @@ def sinusoidal_embedding_1d(
     """
     assert dim % 2 == 0, "dim must be even for sinusoidal embedding!"
     half = dim // 2
-    position = position.type(torch.float64)
+    # float64 gives the cleanest high-theta frequencies, but MPS has no
+    # float64 support; fall back to float32 there (the embedding is cast back
+    # to float32 by the caller anyway).
+    high_precision = torch.float32 if position.device.type == "mps" else torch.float64
+    position = position.type(high_precision)
     freqs = torch.outer(
         position, torch.pow(theta, -torch.arange(half).to(position).div(half))
     )
